@@ -1,25 +1,25 @@
 <p align="center">
 
-  <h1 align="center">Mip-Splatting: Alias-free 3D Gaussian Splatting</h1>
+  <h1 align="center">Robust Neural Rendering in the Wild <br> with Asymmetric Dual 3D Gaussian Splatting</h1>
   <p align="center">
-    <a href="https://niujinshuchong.github.io/">Zehao Yu</a>
+    <a href="">Chengqi Li</a>
     ·
-    <a href="https://apchenstu.github.io/">Anpei Chen</a>
+    <a href="">Zhihao Shi</a>
     ·
-    <a href="https://github.com/hbb1">Binbin Huang</a>
+    <a href="">Yangdi Lu</a>
     ·
-    <a href="https://tsattler.github.io/">Torsten Sattler</a>
+    <a href="">Wenbo He</a>
     ·
-    <a href="http://www.cvlibs.net/">Andreas Geiger</a>
+    <a href="">Xiangyu Xu</a>
 
   </p>
-  <h2 align="center">CVPR 2024 Best Student Paper</h2>
+  <h2 align="center">NeurIPS 2025 Spotlight</h2>
 
-  <h3 align="center"><a href="https://drive.google.com/file/d/1Q7KgGbynzcIEyFJV1I17HgrYz6xrOwRJ/view?usp=sharing">Paper</a> | <a href="https://arxiv.org/pdf/2311.16493.pdf">arXiv</a> | <a href="https://niujinshuchong.github.io/mip-splatting/">Project Page</a>  | <a href="https://niujinshuchong.github.io/mip-splatting-demo/">Online Viewer</a> </h3>
+  <h3 align="center"><a href="https://arxiv.org/abs/2506.03538">Paper</a> | <a href="https://github.com/steveli88/AsymmetricGS">Code</a> </h3>
   <div align="center"></div>
 </p>
 
-
+<!--
 <p align="center">
   <a href="">
     <img src="./media/bicycle_3dgs_vs_ours.gif" alt="Logo" width="95%">
@@ -83,11 +83,13 @@ After training, you can fuse the 3D smoothing filter to the Gaussian parameters 
 python create_fused_ply.py -m {model_dir}/{scene} --output_ply fused/{scene}_fused.ply"
 ```
 Then use our [online viewer](https://niujinshuchong.github.io/mip-splatting-demo) to visualize the trained model.
+-->
 
 # Acknowledgements
 This project is built upon [3DGS](https://github.com/graphdeco-inria/gaussian-splatting). Please follow the license of 3DGS. We thank all the authors for their great work and repos. 
 
 # Citation
+<!--
 If you find our code or paper useful, please cite
 ```bibtex
 @InProceedings{Yu2024MipSplatting,
@@ -108,3 +110,4 @@ If you find our improved densification metric useful, please kindly cite
   year      = {2024},
 }
 ```
+-->
