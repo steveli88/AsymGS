@@ -72,6 +72,8 @@ class PipelineParams(ParamGroup):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
         self.debug = False
+        self.apply_mask = [1, 2] # 0 no mask 1 ada mask 2 learnable mask
+        self.warmup = 1000
         super().__init__(parser, "Pipeline Parameters")
 
 class OptimizationParams(ParamGroup):
@@ -82,16 +84,18 @@ class OptimizationParams(ParamGroup):
         self.position_lr_delay_mult = 0.01
         self.position_lr_max_steps = 30_000
         self.feature_lr = 0.0025
-        self.opacity_lr = 0.05
+        self.opacity_lr = 0.05 * 2
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.densification_interval = 100
-        self.opacity_reset_interval = 3000
+        self.densification_interval = 1000
+        self.opacity_reset_interval = 40_000 # 3_000 todo may need to change back
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
+        self.lambda_mul = 0.1 # optimal 0.1
+        self.lambda_mask = 1.0 # optimal 1.0
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
