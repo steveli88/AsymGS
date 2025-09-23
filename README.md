@@ -1,5 +1,4 @@
 <p align="center">
-
   <h1 align="center">Robust Neural Rendering in the Wild <br> with Asymmetric Dual 3D Gaussian Splatting</h1>
   <p align="center">
     <a href="">Chengqi Li</a>
@@ -14,10 +13,62 @@
 
   </p>
   <h2 align="center">NeurIPS 2025 Spotlight</h2>
-
-  <h3 align="center"><a href="https://arxiv.org/abs/2506.03538">Paper</a> | <a href="https://github.com/steveli88/AsymmetricGS">Code</a> </h3>
+  <h3 align="center">
+   <a href="https://arxiv.org/abs/2506.03538">Paper</a> | <a href="https://github.com/steveli88/AsymmetricGS">Code</a> 
+  </h3>
   <div align="center"></div>
 </p>
+<br/>
+
+<p align="center">
+</p>
+<p align="justify">
+In this work, we present Asymmetric Dual 3DGS, 
+a robust and efficient framework for 3D scene reconstruction in unconstrained, 
+in-the-wild environments. 
+Our method employs two 3DGS models guided by distinct masking strategies to enforce cross-model consistency, 
+effectively mitigating artifacts caused by low-quality observations. 
+To further improve training efficiency, 
+we introduce a dynamic EMA proxy that significantly reduces computational cost with minimal impact on performance. 
+Extensive experiments on three challenging real-world datasets validate the effectiveness and generality of our approach. 
+</p>
+<br/>
+
+## Installation
+Clone the repository and create a `python == 3.11` Anaconda environment with CUDA toolkit 12.6 installed using
+```bash
+git clone https://github.com/steveli88/AsymmetricGS.git
+cd AsymmetricGS
+
+conda create -y -n AsymmetricGS python=3.11
+conda activate AsymmetricGS
+
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+pip install plyfile
+pip install tqdm
+pip install -e ./submodules/diff-gaussian-rasterization ./submodules/simple-knn
+pip install nerfbaselines
+```
+
+## Dataset
+
+### On-the-go dataset
+
+### RobustNeRF dataset
+
+### PhotoTourism dataset
+Using `NerfBaseline` to download scenes from PhotoTourism dataset, or we can also download the dataset from the official website.
+```bash
+nerfbaselines download-dataset external://phototourism/brandenburg-gate -o dataset/phototourism/brandenburg-gate
+nerfbaselines download-dataset external://phototourism/sacre-coeur -o dataset/phototourism/sacre-coeur
+nerfbaselines download-dataset external://phototourism/trevi-fountain -o dataset/phototourism/trevi-fountain
+```
+
+## Mask preprocess for our multi-cue adaptive mask
+
+
+## Training
+
 
 <!--
 <p align="center">
@@ -26,9 +77,8 @@
   </a>
 </p>
 
-<p align="center">
-We introduce a 3D smoothing filter and a 2D Mip filter for 3D Gaussian Splatting (3DGS), eliminating multiple artifacts and achieving alias-free renderings.  
-</p>
+  <img width="51%" alt="WildGaussians model appearance" src=".assets/cover-trevi.webp" />
+  <img width="43%" alt="WildGaussians remove occluders" src=".assets/cover-onthego.webp" />
 <br>
 
 # Update
@@ -85,29 +135,20 @@ python create_fused_ply.py -m {model_dir}/{scene} --output_ply fused/{scene}_fus
 Then use our [online viewer](https://niujinshuchong.github.io/mip-splatting-demo) to visualize the trained model.
 -->
 
-# Acknowledgements
-This project is built upon [3DGS](https://github.com/graphdeco-inria/gaussian-splatting). Please follow the license of 3DGS. We thank all the authors for their great work and repos. 
+## Acknowledgements
+This project is built upon [3DGS](https://github.com/graphdeco-inria/gaussian-splatting) and [Mip-Splatting](https://niujinshuchong.github.io/mip-splatting/).
+Please follow the license of 3DGS and Mip-Splatting. We thank all the authors for their great work and released code.
 
-# Citation
-<!--
+## Citation
 If you find our code or paper useful, please cite
 ```bibtex
-@InProceedings{Yu2024MipSplatting,
-    author    = {Yu, Zehao and Chen, Anpei and Huang, Binbin and Sattler, Torsten and Geiger, Andreas},
-    title     = {Mip-Splatting: Alias-free 3D Gaussian Splatting},
-    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-    month     = {June},
-    year      = {2024},
-    pages     = {19447-19456}
+@misc{li2025robustneuralrenderingwild,
+      title={Robust Neural Rendering in the Wild with Asymmetric Dual 3D Gaussian Splatting}, 
+      author={Chengqi Li and Zhihao Shi and Yangdi Lu and Wenbo He and Xiangyu Xu},
+      year={2025},
+      eprint={2506.03538},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2506.03538}, 
 }
 ```
-If you find our improved densification metric useful, please kindly cite
-```
-@article{Yu2024GOF,
-  author    = {Yu, Zehao and Sattler, Torsten and Geiger, Andreas},
-  title     = {Gaussian Opacity Fields: Efficient High-quality Compact Surface Reconstruction in Unbounded Scenes},
-  journal   = {arXiv:2404.10772},
-  year      = {2024},
-}
-```
--->
