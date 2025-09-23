@@ -46,11 +46,26 @@ from utils.graphics_utils import fov2focal  # type: ignore
 from utils.loss_utils import l1_loss, ssim  # type: ignore
 from utils.sh_utils import SH2RGB, eval_sh  # type: ignore
 from scene import Scene, sceneLoadTypeCallbacks  # type: ignore
-from train import create_offset_gt  # type: ignore
+# from train import create_offset_gt  # type: ignore
 from utils import camera_utils  # type: ignore
 from utils.general_utils import PILtoTorch  # type: ignore
-
 from encoders import AppearanceTransform, initialize_weights
+
+
+@torch.no_grad()
+def create_offset_gt(image, offset):
+    height, width = image.shape[1:]
+    meshgrid = np.meshgrid(range(width), range(height), indexing='xy')
+    id_coords = np.stack(meshgrid, axis=0).astype(np.float32)
+    id_coords = torch.from_numpy(id_coords).cuda()
+
+    id_coords = id_coords.permute(1, 2, 0) + offset
+    id_coords[..., 0] /= (width - 1)
+    id_coords[..., 1] /= (height - 1)
+    id_coords = id_coords * 2 - 1
+
+    image = torch.nn.functional.grid_sample(image[None], id_coords[None], align_corners=True, padding_mode="border")[0]
+    return image
 
 
 def normalize_to_01(tensor, eps=1e-8):
@@ -213,8 +228,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
         sampling_mask = None
-        if dataset["sampling_masks"] is not None:
-            sampling_mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
+        # if dataset["sampling_masks"] is not None:
+        #     sampling_mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
 
         cam_info = _load_caminfo(
             idx, pose, intrinsics,
@@ -418,9 +433,9 @@ class AsymmetricGS(Method):
             # self.colmap_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/train_seg_masks_patio-undistorted.npz")
             # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/semantic_sam_masks_unpooled_filtered_patio-undistorted.npz")
             # todo care which version of the dataset is used
-            # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting_ema/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{dataset_name}.npz")
+            self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting_ema/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{dataset_name}.npz")
             # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{dataset_name}_instance.npz")
-            self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting_ema/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{dataset_name}_23sam.npz")
+            # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting_ema/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{dataset_name}_23sam.npz")
             # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/undistort_resize_masks/semantic_sam_masks_unpooled_filtered_{dataset_name}.npz")
             self.use_color_transform = True if dataset_name in ["brandenburg-gate", "sacre-coeur", "trevi-fountain"] else False
 
