@@ -57,12 +57,13 @@ pip install nerfbaselines
 ### RobustNeRF dataset
 
 ### PhotoTourism dataset
-Using `NerfBaseline` to download scenes from PhotoTourism dataset, or we can also download the dataset from the official website.
+We can use `NerfBaselines` to download scenes from PhotoTourism dataset with initial point clouds and camera parameters ready.
 ```bash
 nerfbaselines download-dataset external://phototourism/brandenburg-gate -o dataset/phototourism/brandenburg-gate
 nerfbaselines download-dataset external://phototourism/sacre-coeur -o dataset/phototourism/sacre-coeur
 nerfbaselines download-dataset external://phototourism/trevi-fountain -o dataset/phototourism/trevi-fountain
 ```
+Alternatively, we can also download raw images from the official website and perform `COLMAP` to obtain point clouds and camera parameters.
 
 ## Mask preprocess for our multi-cue adaptive mask
 
