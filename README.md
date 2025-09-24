@@ -52,12 +52,15 @@ pip install nerfbaselines
 
 ## Dataset
 
-### On-the-go dataset
-
-### RobustNeRF dataset
+### On-the-go dataset & RobustNeRF dataset
+Download [raw On-the-go dataset](https://rwn17.github.io/nerf-on-the-go/) and [raw RobustNeRF dataset](https://robustnerf.github.io/) to the dataset folder. 
+Then running the following script.
+```bash
+sh scripts/dataset_preparation.sh
+```
 
 ### PhotoTourism dataset
-We can use `NerfBaselines` to download scenes from PhotoTourism dataset with initial point clouds and camera parameters ready.
+Using `NerfBaselines` to download scenes from PhotoTourism dataset with initial point clouds and camera parameters ready.
 ```bash
 nerfbaselines download-dataset external://phototourism/brandenburg-gate -o dataset/phototourism/brandenburg-gate
 nerfbaselines download-dataset external://phototourism/sacre-coeur -o dataset/phototourism/sacre-coeur
