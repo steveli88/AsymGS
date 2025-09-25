@@ -102,7 +102,7 @@ sh mask_preparation.sh
 ```
 
 ## Training
-At project root, train our AsymmetricGS (GS-GS) and AsymmetricGS (EMA-GS).
+At project root, train our `AsymmetricGS (GS-GS)` and `AsymmetricGS (EMA-GS)`.
 ```bash
 sh scripts/train_all_gsgs.sh
 sh scripts/train_all_emags.sh
@@ -118,13 +118,12 @@ Please follow the license of Semantic-SAM, Mip-Splatting, and NerfBaselines. We 
 ## Citation
 If you find our code or paper useful, please cite
 ```bibtex
-@misc{li2025robustneuralrenderingwild,
-      title={Robust Neural Rendering in the Wild with Asymmetric Dual 3D Gaussian Splatting}, 
-      author={Chengqi Li and Zhihao Shi and Yangdi Lu and Wenbo He and Xiangyu Xu},
-      year={2025},
-      eprint={2506.03538},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2506.03538}, 
+@inproceedings{
+    li2025asymgs,
+    title={Robust Neural Rendering in the Wild with Asymmetric Dual 3D Gaussian Splatting},
+    author={Chengqi Li and Zhihao Shi and Yangdi Lu and Wenbo He and Xiangyu Xu},
+    booktitle={The Thirty-ninth Annual Conference on Neural Information Processing Systems},
+    year={2025},
+    url={https://openreview.net/forum?id=jPaM3AiFLq}
 }
 ```
