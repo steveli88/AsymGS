@@ -14,7 +14,9 @@
   </p>
   <h2 align="center">NeurIPS 2025 Spotlight</h2>
   <h3 align="center">
-   <a href="https://arxiv.org/abs/2506.03538">Paper</a> | <a href="https://github.com/steveli88/AsymmetricGS">Code</a> 
+   <a href="https://arxiv.org/abs/2506.03538">Paper</a> | 
+   <a href="">Project Page</a> | 
+   <a href="https://github.com/steveli88/AsymmetricGS">Code</a> 
   </h3>
   <div align="center"></div>
 </p>
@@ -54,7 +56,7 @@ pip install nerfbaselines
 
 ### On-the-go dataset & RobustNeRF dataset
 Download [raw On-the-go dataset](https://rwn17.github.io/nerf-on-the-go/) and [raw RobustNeRF dataset](https://robustnerf.github.io/) to the dataset folder. 
-Then running the following script.
+Then running the following script to undistort the raw images.
 ```bash
 sh scripts/dataset_preparation.sh
 ```
@@ -69,6 +71,38 @@ nerfbaselines download-dataset external://phototourism/trevi-fountain -o dataset
 Alternatively, we can also download raw images from the official website and perform `COLMAP` to obtain point clouds and camera parameters.
 
 ## Mask preprocess for our multi-cue adaptive mask
+We introduce Multi-Cue Adaptive Masking, 
+which combines the strengths of residual- and segmentation-based approaches 
+while incorporating a complementary hard mask 
+that captures error patterns distinct from the self-supervised soft mask. 
+Specifically, we first employ Semantic-SAM to generate raw masks. 
+Masks covering static regions are then filtered out using stereo-based correspondence 
+(derived from COLMAP results in dataset preparation). 
+The remaining masks are integrated with residual information during training to identify distractor areas.
+
+Installing requirements for `Semantic-SAM`
+```
+cd submodules
+
+pip install 'git+https://github.com/facebookresearch/detectron2.git'
+pip install timm
+pip install transformers
+pip install kornia
+
+git clone git@github.com:facebookresearch/Mask2Former.git
+TORCH_CUDA_ARCH_LIST='8.9' FORCE_CUDA=1 python Mask2Former/mask2former/modeling/pixel_decoder/ops/setup.py build install
+
+wget -P mask_module https://github.com/UX-Decoder/Semantic-SAM/releases/download/checkpoint/swinl_only_sam_many2many.pth
+```
+
+Mask preprocessing
+```
+cd submodules/mask_module
+
+
+
+```
+
 
 
 ## Training
