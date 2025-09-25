@@ -1,18 +1,7 @@
-#
-# Copyright (C) 2023, Inria
-# GRAPHDECO research group, https://team.inria.fr/graphdeco
-# All rights reserved.
-#
-# This software is free for non-commercial, research and evaluation use
-# under the terms of the LICENSE.md file.
-#
-# For inquiries contact  george.drettakis@inria.fr
-#
 import math
 import warnings
 import itertools
 import random
-import shlex
 import logging
 import copy
 from typing import Optional
@@ -46,7 +35,6 @@ from utils.graphics_utils import fov2focal  # type: ignore
 from utils.loss_utils import l1_loss, ssim  # type: ignore
 from utils.sh_utils import SH2RGB, eval_sh  # type: ignore
 from scene import Scene, sceneLoadTypeCallbacks  # type: ignore
-# from train import create_offset_gt  # type: ignore
 from utils import camera_utils  # type: ignore
 from utils.general_utils import PILtoTorch  # type: ignore
 from encoders import AppearanceTransform, initialize_weights
@@ -366,20 +354,11 @@ class AsymmetricGS(Method):
             # NOTE: this is not handled in the original code
             self.gaussians_1.filter_3D = filter_3D
 
-            self.use_color_transform = False
-            for dataset_name in ["brandenburg-gate", "sacre-coeur", "trevi-fountain"]:
-                if dataset_name in self.checkpoint:
-                    self.use_color_transform = True
-
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+
         self._viewpoint_stack_1 = []
         self._viewpoint_stack_2 = []
-
-        # self._input_points = None
-        # if train_dataset is not None:
-        #     self._input_points = (train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
-
         self.trainCameras_1 = None
         self.highresolution_index_1 = None
         self.trainCameras_2 = None
@@ -416,66 +395,45 @@ class AsymmetricGS(Method):
         # todo tuning these models
         self.encoding_dim = 32
         appearance_n_fourier_freqs = 4
-        # self.appearance_encoder = AppearanceEncoder(backbone="resnet18", output_dim=self.encoding_dim, pretrained=False).cuda()
-        # self.appearance_encoder = AppearanceEncoder(output_dim=self.encoding_dim).cuda()
-        # self.appearance_encoder.apply(initialize_weights)
         self.appearance_transform = AppearanceTransform(global_encoding_dim=self.encoding_dim, local_encoding_dim=appearance_n_fourier_freqs*6).cuda()
         self.appearance_transform.apply(initialize_weights)
-        # self.appearance_encoder_optimizer = torch.optim.Adam(self.appearance_encoder.parameters(), lr=0.0005, eps=1e-15)
         self.appearance_transform_optimizer = torch.optim.Adam(self.appearance_transform.parameters(), lr=0.0005, eps=1e-15)
 
         # todo make this config
         if train_dataset is not None:
-            # self.colmap_masks = np.load("/home/lorentz/Project/Code/gaussian-splatting/train_seg_masks_patio.npz")
-            dataset_name = train_dataset["image_paths_root"].split("/")[-2]
-            self.dataset_name = dataset_name
-            # self.colmap_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/train_semantic_sam_masks_{dataset_name}.npz")
-            # self.colmap_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/train_seg_masks_patio-undistorted.npz")
-            # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/semantic_sam_masks_unpooled_filtered_patio-undistorted.npz")
-            # todo care which version of the dataset is used
-            self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting_ema/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{dataset_name}.npz")
-            # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{dataset_name}_instance.npz")
-            # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting_ema/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{dataset_name}_23sam.npz")
-            # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting/undistort_resize_masks/semantic_sam_masks_unpooled_filtered_{dataset_name}.npz")
-            self.use_color_transform = True if dataset_name in ["brandenburg-gate", "sacre-coeur", "trevi-fountain"] else False
+            self.scene_name = train_dataset["image_paths_root"].split("/")[-2]
+            self.dataset_name = train_dataset["image_paths_root"].split("/")[-3]
+            self.abs_root = "/".join(train_dataset["image_paths_root"].split("/")[:-3])
 
-           # todo image size
+            # Load preprocessed raw masks for multi-cue adaptive mask
+            self.raw_masks = np.load(os.path.join(self.abs_root, self.dataset_name, self.scene_name, f"multi_cue_masks_{self.scene_name}.npz"))
+
+            # Learnable mask
             train_image_number = len(train_dataset["images"])
-
-            # todo need to change this for phototourism
             self.learnable_mask_logits = {
                 cam.image_name: torch.ones((1, cam.image_height, cam.image_width)).cuda().requires_grad_()
                 for cam in self.scene_1.train_cameras[1.0]
             }
-            self.learnable_mask_filters = np.load(f"/home/lorentz/Project/Code/mip-splatting_ema/self_created_data_mask/connected_points_dilated_7_{dataset_name}.npz")
-            # todo care which version of the dataset is used
-            # self.learnable_mask_filters = np.load(f"/home/lorentz/Project/Code/mip-splatting/undistort_resize_masks/connected_points_dilated_7_{dataset_name}.npz")
             self.learnable_mask_optimizer = torch.optim.Adam([item for item in self.learnable_mask_logits.items()], lr=0.1, eps=1e-15)
-
-            # h = train_dataset["images"][0].shape[0]
-            # w = train_dataset["images"][0].shape[1]
-            # self.ema_masks = torch.ones((train_image_number, 1, h, w)).cuda()
 
             self.dinov2_vits14_reg = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg').cuda()
 
             # todo config appearance encoding
-            if self.use_color_transform:
+            # Adopting appearance modeling in phototourism dataset
+            if self.dataset_name == "phototourism":
+                self.use_color_transform = True
                 self.global_encoding_1 = torch.normal(mean=0, std=0.01, size=(train_image_number, self.encoding_dim)).cuda().requires_grad_()
                 self.global_encoding_optimizer_1 = torch.optim.Adam([{'params': [self.global_encoding_1]}], lr=0.001, eps=1e-15)
                 self.global_encoding_2 = torch.normal(mean=0, std=0.01, size=(train_image_number, self.encoding_dim)).cuda().requires_grad_()
                 self.global_encoding_optimizer_2 = torch.optim.Adam([{'params': [self.global_encoding_2]}], lr=0.001, eps=1e-15)
             else:
+                self.use_color_transform = False
                 self.global_encoding_1 = torch.zeros((train_image_number, self.encoding_dim)).cuda().requires_grad_(False)
                 self.global_encoding_2 = torch.zeros((train_image_number, self.encoding_dim)).cuda().requires_grad_(False)
 
-                # self.learnable_mask_logits = torch.ones((train_image_number, h, w)).cuda().requires_grad_()
-                # self.learnable_mask_optimizer = torch.optim.Adam([{'params': [self.learnable_mask_logits]}], lr=0.1, eps=1e-15)
-
     def get_learnable_mask(self, id, size):
         learnable_mask_logit = self.learnable_mask_logits[id].view(-1, 1, size[0], size[1])
-        # activate_mask = torch.nn.functional.interpolate(activate_mask, size=size, mode="bilinear")
         activated_mask = torch.sigmoid(8 * learnable_mask_logit)
-        # activated_mask = nn.functional.hardsigmoid(3 * learnable_mask_logit)
         return activated_mask.squeeze(0)
 
     @classmethod
@@ -532,15 +490,8 @@ class AsymmetricGS(Method):
 
         if True:
             global_encoding_np_1 = self._optimize_single_gaussian(self.gaussians_1, viewpoint_cam, dataset, device)
-            # global_encoding_np_2 = self._optimize_single_gaussian(self.gaussians_2, viewpoint_cam, dataset, device)
             return {
-                # "embedding": (global_encoding_np_1, global_encoding_np_2),
                 "embedding": global_encoding_np_1,
-                # "metrics": {
-                #     "psnr": psnrs,
-                #     "mse": mses,
-                #     "loss": losses,
-                # }
             }
         else:
             raise NotImplementedError("Trying to optimize embedding with appearance_enabled=False")
@@ -552,7 +503,6 @@ class AsymmetricGS(Method):
 
         if self.dataset.ray_jitter:
             subpixel_offset= torch.rand((int(viewpoint_cam.image_height), int(viewpoint_cam.image_width), 2), dtype=torch.float32, device="cuda") - 0.5
-            # subpixel_offset *= 0.0
         else:
             subpixel_offset = None
 
@@ -569,9 +519,6 @@ class AsymmetricGS(Method):
             loss_mult = None
             if app_optim_type.endswith("-scaled"):
                 app_optim_type = app_optim_type[:-7]
-                # if self.model.uncertainty_model is not None:
-                #     _, _, loss_mult = self.model.uncertainty_model.get_loss(gt_image, gt_image)
-                #     loss_mult = (loss_mult > 1).to(dtype=loss_mult.dtype)
             # todo add this to config
             global_encoding_optim_iters = 128
             for _ in range(global_encoding_optim_iters):
@@ -599,8 +546,6 @@ class AsymmetricGS(Method):
                 else:
                     raise ValueError(f"Unknown appearance optimization type {app_optim_type}")
                 loss.backward()
-                # TODO: use uncertainty here as well
-                # print(float(global_encoding_param.grad.abs().max().cpu()), float(mse.cpu()))
                 optimizer.step()
 
                 losses.append(loss.detach().cpu().item())
@@ -613,7 +558,6 @@ class AsymmetricGS(Method):
         global_encoding_np = global_encoding_param.detach().cpu().numpy()
 
         torch.cuda.empty_cache()
-
         gaussians.unfreeze()
 
         return global_encoding_np
@@ -629,30 +573,21 @@ class AsymmetricGS(Method):
 
             if self.dataset.ray_jitter:
                 subpixel_offset = torch.rand((int(viewpoint.image_height), int(viewpoint.image_width), 2), dtype=torch.float32, device="cuda") - 0.5
-                # subpixel_offset *= 0.0
             else:
                 subpixel_offset = None
 
             if self.use_color_transform:
                 if options is not None:
-                    # _np_embedding_1, _np_embedding_2 = (options or {}).get("embedding", None)
                     _np_embedding_1 = (options or {}).get("embedding", None)
                 else:
-                    # encoding_dim = self.global_encoding_1[0].size(0)
                     _np_embedding_1= np.zeros((1, self.encoding_dim), dtype=np.float32)
-                    # _np_embedding_2= np.zeros((1, self.encoding_dim), dtype=np.float32)
                 global_encoding_1 = torch.from_numpy(_np_embedding_1).cuda()
-                # global_encoding_2 = torch.from_numpy(_np_embedding_2).cuda()
 
                 image_1 = torch.clamp(self._render_with_appearance_encoding(viewpoint, self.gaussians_1, global_encoding_1, self.background, subpixel_offset)["render"], 0.0, 1.0)
-                # image_2 = torch.clamp(self._render_with_appearance_encoding(viewpoint, self.gaussians_2, global_encoding_2, self.background, subpixel_offset)["render"], 0.0, 1.0)
             else:
                 image_1 = torch.clamp(render(viewpoint, self.gaussians_1, self.pipe, self.background, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset)["render"], 0.0, 1.0)
-                # image_2 = torch.clamp(render(viewpoint, self.gaussians_2, self.pipe, self.background, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset)["render"], 0.0, 1.0)
 
-            # image = (image_1 + image_2) * 0.5
             image = image_1
-            # image = image_2
             color = image.detach().permute(1, 2, 0)
             return _format_output({"color": color}, options)
 
@@ -685,10 +620,6 @@ class AsymmetricGS(Method):
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack_2):
                 raise RuntimeError("could not patch loadCam!")
 
-        # sample viewpoint
-        # viewpoint_cam_1 = self._sample_view(self._viewpoint_stack_1, self.trainCameras_1, self.highresolution_index_1)
-        # viewpoint_cam_2 = self._sample_view(self._viewpoint_stack_2, self.trainCameras_2, self.highresolution_index_2)
-
         viewpoint_cam_1 = self._viewpoint_stack_1[randint(0, len(self._viewpoint_stack_1)-1)]
         viewpoint_cam_2 = self._viewpoint_stack_2[randint(0, len(self._viewpoint_stack_2)-1)]
 
@@ -697,13 +628,12 @@ class AsymmetricGS(Method):
         if self.dataset.ray_jitter:
             subpixel_offset_1 = torch.rand((int(viewpoint_cam_1.image_height), int(viewpoint_cam_1.image_width), 2), dtype=torch.float32, device="cuda") - 0.5
             subpixel_offset_2 = torch.rand((int(viewpoint_cam_2.image_height), int(viewpoint_cam_2.image_width), 2), dtype=torch.float32, device="cuda") - 0.5
-            # subpixel_offset *= 0.0
         else:
             subpixel_offset_1 = None
             subpixel_offset_2 = None
 
         if self.use_color_transform:
-            # phototourism
+            # Phototourism
             image_name_1 = viewpoint_cam_1.image_name
             image_name_2 = viewpoint_cam_2.image_name
 
@@ -723,71 +653,40 @@ class AsymmetricGS(Method):
             image_raw_2 = render_pkg_raw_2["render"]
             image_raw_1_g2 = render(viewpoint_cam_1, self.gaussians_2, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)["render"]
 
-            # Loss 1
+            # Masked reconstruction loss 1 (multi-cue adaptive mask by default)
             gt_image_1 = viewpoint_cam_1.original_image.cuda()
             sampling_mask_1 = self._mask_generation(self.pipe.apply_mask[0], image_1, gt_image_1, image_name_1)
-
             # sample gt_image with subpixel offset
             if self.dataset.resample_gt_image:
                 gt_image_1 = create_offset_gt(gt_image_1, subpixel_offset_1)
                 sampling_mask_1 = create_offset_gt(sampling_mask_1, subpixel_offset_1) if sampling_mask_1 is not None else None
-
             loss = self._masked_loss(image_1, gt_image_1, sampling_mask_1)
 
-            # Loss 2
+            # Masked reconstruction loss 2 (learnable mask by default)
             gt_image_2 = viewpoint_cam_2.original_image.cuda()
             sampling_mask_2 = self._mask_generation(self.pipe.apply_mask[1], image_2, gt_image_2, image_name_2)
-
             # sample gt_image with subpixel offset
             if self.dataset.resample_gt_image:
                 gt_image_2 = create_offset_gt(gt_image_2, subpixel_offset_2)
                 sampling_mask_2 = create_offset_gt(sampling_mask_2, subpixel_offset_2) if sampling_mask_2 is not None else None
-
             loss += self._masked_loss(image_2, gt_image_2, sampling_mask_2)
 
-
-            # if iteration < 500:  # and iteration > self.pipe.warmup
-            #     save_root = "/home/lorentz/Project/Code/mip-splatting/vis_masks"
-            #     # sampling_mask_np = sampling_mask_1.squeeze().detach().cpu().numpy()
-            #     # sampling_mask_uint8 = (sampling_mask_np * 255).astype(np.uint8)
-            #     # Image.fromarray(sampling_mask_uint8, mode="L").save(
-            #     #     os.path.join(save_root, f"{self.dataset_name}_{iteration}_mask_{image_name_1}"))
-            #
-            #     gt_np = np.clip(gt_image_1.permute(1, 2, 0).detach().cpu().numpy(), 0, 1)
-            #     gt_uint8 = (gt_np * 255).astype(np.uint8)
-            #     Image.fromarray(gt_uint8).save(
-            #         os.path.join(save_root, f"{self.dataset_name}_{iteration}_{image_name_1}"))
-            #
-            #     raw_np = np.clip(image_raw_1.permute(1, 2, 0).detach().cpu().numpy(), 0, 1)
-            #     raw_uint8 = (raw_np * 255).astype(np.uint8)
-            #     Image.fromarray(raw_uint8).save(
-            #         os.path.join(save_root, f"{self.dataset_name}_{iteration}_raw_g1_{image_name_1}"))
-            #
-            #     raw_g2_np = np.clip(image_raw_1_g2.permute(1, 2, 0).detach().cpu().numpy(), 0, 1)
-            #     raw_g2_uint8 = (raw_g2_np * 255).astype(np.uint8)
-            #     Image.fromarray(raw_g2_uint8).save(
-            #         os.path.join(save_root, f"{self.dataset_name}_{iteration}_raw_g2_{image_name_1}"))
-
-            # else:
-            #     exit()
-
-
-
-            # mutual learning
+            # Mutual consistency
             if iteration > self.pipe.warmup:
-                # previously was 1.0 here
                 loss += self.opt.lambda_mul * l1_loss(image_raw_2, image_raw_2_g1)
                 loss += self.opt.lambda_mul * l1_loss(image_raw_1_g2, image_raw_1)
-            # mask learning
+
+            # Mask learning loss
             if self.pipe.apply_mask[0] == 2:
                 loss += self.opt.lambda_mask * self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
             if self.pipe.apply_mask[1] == 2:
                 loss += self.opt.lambda_mask * self._mask_error(sampling_mask_2, image_2, gt_image_2, image_name_2)
                 
         else:
-            # onthego and robustnerf
+            # Onthego and Robustnerf
             image_name_1 = viewpoint_cam_1.image_name
             image_name_2 = viewpoint_cam_2.image_name
+
             # Render 1
             render_pkg_1 = render(viewpoint_cam_1, self.gaussians_1, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)
             image_1, viewspace_point_tensor_1, visibility_filter_1, radii_1 = render_pkg_1["render"], render_pkg_1["viewspace_points"], render_pkg_1["visibility_filter"], render_pkg_1["radii"]
@@ -798,67 +697,34 @@ class AsymmetricGS(Method):
             image_2, viewspace_point_tensor_2, visibility_filter_2, radii_2 = render_pkg_2["render"], render_pkg_2["viewspace_points"], render_pkg_2["visibility_filter"], render_pkg_2["radii"]
             image_1_g2 = render(viewpoint_cam_1, self.gaussians_2, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)["render"]
 
-            # Loss 1
+            # Masked reconstruction loss 1 (multi-cue adaptive mask by default)
             gt_image_1 = viewpoint_cam_1.original_image.cuda()
             sampling_mask_1 = self._mask_generation(self.pipe.apply_mask[0], image_1, gt_image_1, image_name_1)
-
             # sample gt_image with subpixel offset
             if self.dataset.resample_gt_image:
                 gt_image_1 = create_offset_gt(gt_image_1, subpixel_offset_1)
                 sampling_mask_1 = create_offset_gt(sampling_mask_1, subpixel_offset_1) if sampling_mask_1 is not None else None
-
             loss = self._masked_loss(image_1, gt_image_1, sampling_mask_1)
 
-            # Loss 2
+            # Masked reconstruction loss 2 (learnable mask by default)
             gt_image_2 = viewpoint_cam_2.original_image.cuda()
             sampling_mask_2 = self._mask_generation(self.pipe.apply_mask[1], image_2, gt_image_2, image_name_2)
-
             # sample gt_image with subpixel offset
             if self.dataset.resample_gt_image:
                 gt_image_2 = create_offset_gt(gt_image_2, subpixel_offset_2)
                 sampling_mask_2 = create_offset_gt(sampling_mask_2, subpixel_offset_2) if sampling_mask_2 is not None else None
-
             loss += self._masked_loss(image_2, gt_image_2, sampling_mask_2)
 
-            if iteration % 1000 == 0:  # and iteration > self.pipe.warmup
-                save_root = "/home/lorentz/Project/Code/mip-splatting/vis_masks"
-                if not os.path.exists(save_root):
-                    os.makedirs(save_root)
-                # sampling_mask_np = sampling_mask_1.squeeze().detach().cpu().numpy()
-                # sampling_mask_uint8 = (sampling_mask_np * 255).astype(np.uint8)
-                # Image.fromarray(sampling_mask_uint8, mode="L").save(
-                #     os.path.join(save_root, f"{self.dataset_name}_{iteration}_mask_{image_name_1}"))
-
-                gt_np = np.clip(gt_image_1.permute(1, 2, 0).detach().cpu().numpy(), 0, 1)
-                gt_uint8 = (gt_np * 255).astype(np.uint8)
-                Image.fromarray(gt_uint8).save(
-                    os.path.join(save_root, f"{self.dataset_name}_{iteration}_{image_name_1}"))
-
-                raw_np = np.clip(image_1.permute(1, 2, 0).detach().cpu().numpy(), 0, 1)
-                raw_uint8 = (raw_np * 255).astype(np.uint8)
-                Image.fromarray(raw_uint8).save(
-                    os.path.join(save_root, f"{self.dataset_name}_{iteration}_raw_g1_{image_name_1}"))
-
-                raw_g2_np = np.clip(image_1_g2.permute(1, 2, 0).detach().cpu().numpy(), 0, 1)
-                raw_g2_uint8 = (raw_g2_np * 255).astype(np.uint8)
-                Image.fromarray(raw_g2_uint8).save(
-                    os.path.join(save_root, f"{self.dataset_name}_{iteration}_raw_g2_{image_name_1}"))
-            # else:
-            #     exit()
-
-            # mutual learning
+            # Mutual consistency
             if iteration > self.pipe.warmup:
-                # previously was 1.0 here
                 loss += self.opt.lambda_mul * l1_loss(image_2, image_2_g1)
                 loss += self.opt.lambda_mul * l1_loss(image_1_g2, image_1)
-            # mask learning
+
+            # Mask learning loss
             if self.pipe.apply_mask[0] == 2:
                 loss += self.opt.lambda_mask * self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
             if self.pipe.apply_mask[1] == 2:
                 loss += self.opt.lambda_mask * self._mask_error(sampling_mask_2, image_2, gt_image_2, image_name_2)
-
-        # loss += self._regularization(self.gaussians_1)
-        # loss += self._regularization(self.gaussians_2)
 
         loss.backward()
 
@@ -900,19 +766,9 @@ class AsymmetricGS(Method):
                     self.global_encoding_optimizer_2.step()
                     self.global_encoding_optimizer_2.zero_grad(set_to_none=True)
 
-                if self.pipe.apply_mask[0] == 2:
-                    self.learnable_mask_logits[image_name_1].grad *= torch.from_numpy(
-                        1.0 - self.learnable_mask_filters[image_name_1]).to(gt_image_1.dtype).cuda()
-
-                if self.pipe.apply_mask[1] == 2:
-                    self.learnable_mask_logits[image_name_2].grad *= torch.from_numpy(
-                        1.0 - self.learnable_mask_filters[image_name_2]).to(gt_image_2.dtype).cuda()
-
                 if self.pipe.apply_mask[0] == 2 or self.pipe.apply_mask[1] == 2:
                     self.learnable_mask_optimizer.step()
                     self.learnable_mask_optimizer.zero_grad(set_to_none=True)
-
-                # self._update_learnable_mask(image_name_1, image_name_2, gt_image_1, gt_image_2)
 
         self.step = self.step + 1
         return metrics
@@ -920,29 +776,10 @@ class AsymmetricGS(Method):
     def _mask_error(self, sampling_mask_1, image_1, gt_image_1, image_name_1):
         # transform to [0, 1]
         transformed_feature_residual = self._feature_residual(image_1.detach(), gt_image_1)
-        # transformed_feature_residual -= transformed_feature_residual.min(1, keepdim=True)[0]
-        # transformed_feature_residual /= transformed_feature_residual.max(1, keepdim=True)[0]
         transformed_feature_residual = normalize_to_01(transformed_feature_residual)
-
-        # consider COLMAP points
-        transformed_feature_residual -= torch.from_numpy(self.learnable_mask_filters[image_name_1]).to(gt_image_1.dtype).cuda() # looks fine but worse performance
         transformed_feature_residual = transformed_feature_residual.clamp(min=0.0, max=1.0)
 
         return l1_loss(sampling_mask_1, 1.0 - transformed_feature_residual)
-
-    def _update_learnable_mask(self, image_name_1, image_name_2, gt_image_1, gt_image_2):
-        '''
-        Not used
-        '''
-        if self.pipe.apply_mask[0] == 2:
-            self.learnable_mask_logits[image_name_1].grad *= torch.from_numpy(
-                1.0 - self.learnable_mask_filters[image_name_1]).to(gt_image_1.dtype).cuda()
-        if self.pipe.apply_mask[1] == 2:
-            self.learnable_mask_logits[image_name_2].grad *= torch.from_numpy(
-                1.0 - self.learnable_mask_filters[image_name_2]).to(gt_image_2.dtype).cuda()
-        if self.pipe.apply_mask[0] == 2 or self.pipe.apply_mask[1] == 2:
-            self.learnable_mask_optimizer.step()
-            self.learnable_mask_optimizer.zero_grad(set_to_none=True)
 
     def _mask_generation(self, mask_method, image, gt_image, image_name):
         if mask_method == 0:
@@ -954,40 +791,37 @@ class AsymmetricGS(Method):
         return None
 
     def _masked_loss(self, render_image, gt_image, sampling_mask):
-        '''
-        render_image - (3, h, w)
-        gt_image - (3, h, w)
-        sampling_mask - (1, h, w)
-        '''
         # Apply mask
         if sampling_mask is not None:
             render_image = render_image * sampling_mask + (1.0 - sampling_mask) * render_image.detach()
-        # masked L1 adn SSIM
+        # Masked L1 adn SSIM
         Ll1 = l1_loss(render_image, gt_image)
         ssim_value = ssim(render_image, gt_image)
         # Weighting
         return (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim_value)
 
     def _sampling_mask_from_residual(self, render_image, gt_image, image_name):
-        # calculate residual
+        '''
+        Multi-cue adaptive mask
+        '''
         render_image = render_image.detach()
         gt_image = gt_image.detach()
         image_size = (gt_image.size(1), gt_image.size(2))
 
-        # pixel level residual
+        # Pixel level residual
         residual_map_1 = torch.mean(torch.abs(render_image - gt_image), dim=0, keepdim=True)
         high_residual_map_1 = (residual_map_1 > torch.quantile(residual_map_1, 0.95)) * 1.0 # todo need to tunning threshold so far 0.5 ok
 
-        # feature level residual
+        # Feature level residual
         residual_map_2 = self._feature_residual(render_image, gt_image)
         high_residual_map_2 = (residual_map_2 > torch.quantile(residual_map_2, 0.9)) * 1.0 # residual_map.mean()
         high_residual_map = (high_residual_map_1 + high_residual_map_2) > 1
         high_residual_mask_threshold = high_residual_map.sum() / (image_size[0] * image_size[1])
 
-        # load masks and resize for image
+        # Load raw masks
         raw_sampling_masks_resized = torch.from_numpy(self.raw_masks[image_name]).to(gt_image.dtype).cuda()
 
-        # Select mask reaching certain threshold
+        # Select masks contain high residual area (reaching certain density threshold)
         high_residual_within_masks = (raw_sampling_masks_resized * high_residual_map).sum(dim=(-2, -1))
         masks_area = raw_sampling_masks_resized.sum(dim=(-2, -1))
         high_residual_within_masks_per_area = high_residual_within_masks / masks_area
@@ -1019,25 +853,6 @@ class AsymmetricGS(Method):
         output = 1.0 - cos(e1, e2)
         output = output.view(-1, nh // 14, nw // 14)
         return nn.functional.interpolate(output.unsqueeze(0), (h, w)).squeeze(0)
-
-    def _regularization(self, gaussians):
-        shape_pena = (gaussians.get_scaling.max(dim=1).values / gaussians.get_scaling.min(dim=1).values).mean()
-        scale_pena = (gaussians.get_scaling.max(dim=1, keepdim=True).values ** 2).mean()
-        opacity = gaussians.get_opacity
-        # todo config
-        opa_pena = 1 - (opacity[opacity > 0.2]**2).mean() + ((1 - opacity[opacity < 0.2])**2).mean()
-        return 0.001 * shape_pena + 0.001 * scale_pena + 0.01 * opa_pena
-
-    def _sample_view(self, viewpoint_stack, train_cameras, highresolution_index):
-        # Pick a random Camera
-        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
-
-        # Pick a random high resolution camera
-        if random.random() < 0.3 and self.dataset.sample_more_highres:
-            viewpoint_cam = train_cameras[highresolution_index[randint(0, len(highresolution_index) - 1)]]
-            if any(not getattr(cam, "_patched", False) for cam in viewpoint_stack):
-                raise RuntimeError("could not patch loadCam!")
-        return viewpoint_cam
 
     def _render_with_appearance_encoding(self, viewpoint_cam, gaussians, global_encoding, bg, subpixel_offset):
         # Evaluate color

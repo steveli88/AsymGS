@@ -56,7 +56,7 @@ pip install nerfbaselines
 
 ### On-the-go dataset & RobustNeRF dataset
 Download [raw On-the-go dataset](https://rwn17.github.io/nerf-on-the-go/) and [raw RobustNeRF dataset](https://robustnerf.github.io/) to the dataset folder. 
-Then running the following script to undistort the raw images.
+For RobustNeRF dataset, we use cluttered images as training data and extra images from novel views as validation data. Then running the following script to undistort the raw images.
 ```bash
 sh scripts/dataset_preparation.sh
 ```
@@ -75,7 +75,7 @@ We introduce Multi-Cue Adaptive Masking,
 which combines the strengths of residual- and segmentation-based approaches 
 while incorporating a complementary hard mask 
 that captures error patterns distinct from the self-supervised soft mask. 
-Specifically, we first employ Semantic-SAM to generate raw masks. 
+Specifically, we first employ [Semantic-SAM](https://github.com/UX-Decoder/Semantic-SAM) to generate raw masks. 
 Masks covering static regions are then filtered out using stereo-based correspondence 
 (derived from COLMAP results in dataset preparation). 
 The remaining masks are integrated with residual information during training to identify distractor areas.
@@ -98,9 +98,7 @@ wget -P mask_module https://github.com/UX-Decoder/Semantic-SAM/releases/download
 Mask preprocessing
 ```
 cd submodules/mask_module
-
-
-
+sh mask_preparation.sh
 ```
 
 
