@@ -205,8 +205,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
         sampling_mask = None
-        # if dataset["sampling_masks"] is not None:
-        #     sampling_mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
+        # if dataset["masks"] is not None:
+        #     sampling_mask = Image.fromarray((dataset["masks"][idx] * 255).astype(np.uint8))
 
         cam_info = _load_caminfo(
             idx, pose, intrinsics,
@@ -466,7 +466,7 @@ class AsymmetricGS(Method):
         optimizer = torch.optim.Adam([global_encoding_param], lr=0.1)
 
         gt_image = torch.tensor(convert_image_dtype(dataset["images"][i], np.float32), dtype=torch.float32, device=device).permute(2, 0, 1)
-        gt_mask = torch.tensor(convert_image_dtype(dataset["sampling_masks"][i], np.float32), dtype=torch.float32, device=device)[..., None].permute(2, 0, 1) if dataset["sampling_masks"] is not None else None
+        gt_mask = torch.tensor(convert_image_dtype(dataset["masks"][i], np.float32), dtype=torch.float32, device=device)[..., None].permute(2, 0, 1) if dataset["masks"] is not None else None
 
         with torch.enable_grad():
             # todo add this to config
