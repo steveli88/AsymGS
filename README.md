@@ -1,25 +1,23 @@
+<h1 align="center">Robust Neural Rendering in the Wild <br> with Asymmetric Dual 3D Gaussian Splatting</h1>
 <p align="center">
-  <h1 align="center">Robust Neural Rendering in the Wild <br> with Asymmetric Dual 3D Gaussian Splatting</h1>
-  <p align="center">
-    <a href="">Chengqi Li</a>
-    ·
-    <a href="">Zhihao Shi</a>
-    ·
-    <a href="">Yangdi Lu</a>
-    ·
-    <a href="">Wenbo He</a>
-    ·
-    <a href="">Xiangyu Xu</a>
+<a href="">Chengqi Li</a>
+·
+<a href="">Zhihao Shi</a>
+·
+<a href="">Yangdi Lu</a>
+·
+<a href="">Wenbo He</a>
+·
+<a href="">Xiangyu Xu</a>
 
-  </p>
-  <h2 align="center">NeurIPS 2025 Spotlight</h2>
-  <h3 align="center">
-   <a href="https://arxiv.org/abs/2506.03538">Paper</a> | 
-   <a href="">Project Page</a> | 
-   <a href="https://github.com/steveli88/AsymmetricGS">Code</a> 
-  </h3>
-  <div align="center"></div>
 </p>
+<h2 align="center">NeurIPS 2025 Spotlight</h2>
+<h3 align="center">
+<a href="https://arxiv.org/abs/2506.03538">Paper</a> | 
+<a href="">Project Page</a> | 
+<a href="https://github.com/steveli88/AsymmetricGS">Code</a> 
+</h3>
+<div align="center"></div>
 <br/>
 
 <p align="center">

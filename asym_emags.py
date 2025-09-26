@@ -323,34 +323,17 @@ class AsymmetricGS(Method):
         safe_state(False)
 
         # Setup model
-        self.gaussians_1 = GaussianModel(self.dataset.sh_degree)
-        self.gaussians_2 = GaussianModel(self.dataset.sh_degree)
+        self.gaussians_1 = GaussianModel(self.dataset.sh_degree, enable_ema=True)
         self.scene_1 = self._build_scene(train_dataset, self.gaussians_1)
-        self.scene_2 = self._build_scene(train_dataset, self.gaussians_2)
         if train_dataset is not None:
             self.gaussians_1.training_setup(self.opt)
-            self.gaussians_2.training_setup(self.opt)
         filter_3D = None
-        if train_dataset is None or self.checkpoint:
-            info = self.get_info()
-            _modeldata = torch.load(str(self.checkpoint) + f"/chkpnt-{info.get('loaded_step')}.pth", weights_only=False)
-            if len(_modeldata) == 3:
-                (model_params, filter_3D, self.step) = _modeldata
-            else:
-                warnings.warn("Old checkpoint format! The performance will be suboptimal. Please fix the checkpoint or restart the training.")
-                (model_params, self.step) = _modeldata
-            self.gaussians_1.restore(model_params, self.opt)
-            # NOTE: this is not handled in the original code
-            self.gaussians_1.filter_3D = filter_3D
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         self._viewpoint_stack_1 = []
-        self._viewpoint_stack_2 = []
         self.trainCameras_1 = None
         self.highresolution_index_1 = None
-        self.trainCameras_2 = None
-        self.highresolution_index_2 = None
 
         if train_dataset is not None:
             self.trainCameras_1 = self.scene_1.getTrainCameras().copy()
@@ -362,23 +345,10 @@ class AsymmetricGS(Method):
                 if camera.image_width >= 800:
                     self.highresolution_index_1.append(index)
 
-            self.trainCameras_2 = self.scene_2.getTrainCameras().copy()
-            if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack_2):
-                raise RuntimeError("could not patch loadCam!")
-            # highresolution index
-            self.highresolution_index_2 = []
-            for index, camera in enumerate(self.trainCameras_2):
-                if camera.image_width >= 800:
-                    self.highresolution_index_2.append(index)
-
         if filter_3D is None:
             if self.trainCameras_1 is None:
                 raise RuntimeError("Old checkpoint format! Please run nerfbaselines fix-checkpoint first.")
             self.gaussians_1.compute_3D_filter(cameras=self.trainCameras_1)
-
-            if self.trainCameras_2 is None:
-                raise RuntimeError("Old checkpoint format! Please run nerfbaselines fix-checkpoint first.")
-            self.gaussians_2.compute_3D_filter(cameras=self.trainCameras_2)
 
         # todo tuning these models
         self.encoding_dim = 32
@@ -412,12 +382,9 @@ class AsymmetricGS(Method):
                 self.use_color_transform = True
                 self.global_encoding_1 = torch.normal(mean=0, std=0.01, size=(train_image_number, self.encoding_dim)).cuda().requires_grad_()
                 self.global_encoding_optimizer_1 = torch.optim.Adam([{'params': [self.global_encoding_1]}], lr=0.001, eps=1e-15)
-                self.global_encoding_2 = torch.normal(mean=0, std=0.01, size=(train_image_number, self.encoding_dim)).cuda().requires_grad_()
-                self.global_encoding_optimizer_2 = torch.optim.Adam([{'params': [self.global_encoding_2]}], lr=0.001, eps=1e-15)
             else:
                 self.use_color_transform = False
                 self.global_encoding_1 = torch.zeros((train_image_number, self.encoding_dim)).cuda().requires_grad_(False)
-                self.global_encoding_2 = torch.zeros((train_image_number, self.encoding_dim)).cuda().requires_grad_(False)
 
     def get_learnable_mask(self, id, size):
         learnable_mask_logit = self.learnable_mask_logits[id].view(-1, 1, size[0], size[1])
@@ -581,169 +548,138 @@ class AsymmetricGS(Method):
 
     def train_iteration(self, step):
         assert self.trainCameras_1 is not None, "Model was not initialized with a training dataset"
-        assert self.trainCameras_2 is not None, "Model was not initialized with a training dataset"
         assert self.highresolution_index_1 is not None, "Model was not initialized with a training dataset"
-        assert self.highresolution_index_2 is not None, "Model was not initialized with a training dataset"
 
         self.step = step
         iteration = step + 1  # Gaussian Splatting is 1-indexed
         del step
 
         self.gaussians_1.update_learning_rate(iteration)
-        self.gaussians_2.update_learning_rate(iteration)
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
             self.gaussians_1.oneupSHdegree()
-            self.gaussians_2.oneupSHdegree()
 
         if not self._viewpoint_stack_1:
             loadCam.was_called = False  # type: ignore
             self._viewpoint_stack_1 = self.scene_1.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack_1):
                 raise RuntimeError("could not patch loadCam!")
-        if not self._viewpoint_stack_2:
-            loadCam.was_called = False  # type: ignore
-            self._viewpoint_stack_2 = self.scene_1.getTrainCameras().copy()
-            if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack_2):
-                raise RuntimeError("could not patch loadCam!")
 
         viewpoint_cam_1 = self._viewpoint_stack_1[randint(0, len(self._viewpoint_stack_1) - 1)]
-        viewpoint_cam_2 = self._viewpoint_stack_2[randint(0, len(self._viewpoint_stack_2) - 1)]
 
         # Share render inputs
         bg = torch.rand((3), device="cuda") if getattr(self.opt, 'random_background', False) else self.background
         if self.dataset.ray_jitter:
             subpixel_offset_1 = torch.rand((int(viewpoint_cam_1.image_height), int(viewpoint_cam_1.image_width), 2), dtype=torch.float32, device="cuda") - 0.5
-            subpixel_offset_2 = torch.rand((int(viewpoint_cam_2.image_height), int(viewpoint_cam_2.image_width), 2), dtype=torch.float32, device="cuda") - 0.5
         else:
             subpixel_offset_1 = None
-            subpixel_offset_2 = None
+
+        k = iteration
 
         if self.use_color_transform:
             # Phototourism
             image_name_1 = viewpoint_cam_1.image_name
-            image_name_2 = viewpoint_cam_2.image_name
 
-            # Render 1
+            # Render 1 (Rendering from GS)
             global_encoding_1 = self.global_encoding_1[viewpoint_cam_1.uid]
             render_pkg_1 = self._render_with_appearance_encoding(viewpoint_cam_1, self.gaussians_1, global_encoding_1, bg, subpixel_offset_1)
             image_1, viewspace_point_tensor_1, visibility_filter_1, radii_1 = render_pkg_1["render"], render_pkg_1["viewspace_points"], render_pkg_1["visibility_filter"], render_pkg_1["radii"]
             render_pkg_raw_1 = render(viewpoint_cam_1, self.gaussians_1, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)
             image_raw_1 = render_pkg_raw_1["render"]
-            image_raw_2_g1 = render(viewpoint_cam_2, self.gaussians_1, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_2)["render"]
 
-            # Render 2
-            global_encoding_2 = self.global_encoding_2[viewpoint_cam_2.uid]
-            render_pkg_2 = self._render_with_appearance_encoding(viewpoint_cam_2, self.gaussians_2, global_encoding_2, bg, subpixel_offset_2)
-            image_2, viewspace_point_tensor_2, visibility_filter_2, radii_2 = render_pkg_2["render"], render_pkg_2["viewspace_points"], render_pkg_2["visibility_filter"], render_pkg_2["radii"]
-            render_pkg_raw_2 = render(viewpoint_cam_2, self.gaussians_2, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_2)
-            image_raw_2 = render_pkg_raw_2["render"]
-            image_raw_1_g2 = render(viewpoint_cam_1, self.gaussians_2, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)["render"]
-
-            # Masked reconstruction loss 1 (multi-cue adaptive mask by default)
+            # Masked reconstruction loss 1
             gt_image_1 = viewpoint_cam_1.original_image.cuda()
-            sampling_mask_1 = self._mask_generation(self.pipe.apply_mask[0], image_1, gt_image_1, image_name_1)
+            sampling_mask_1 = self._mask_generation(self.pipe.apply_mask[k % 2], image_1, gt_image_1, image_name_1)
             # sample gt_image with subpixel offset
             if self.dataset.resample_gt_image:
                 gt_image_1 = create_offset_gt(gt_image_1, subpixel_offset_1)
                 sampling_mask_1 = create_offset_gt(sampling_mask_1, subpixel_offset_1) if sampling_mask_1 is not None else None
-            loss = self._masked_loss(image_1, gt_image_1, sampling_mask_1)
+            loss = self._masked_loss(image_1, gt_image_1, sampling_mask_1)  # detach or not
 
-            # Masked reconstruction loss 2 (learnable mask by default)
-            gt_image_2 = viewpoint_cam_2.original_image.cuda()
-            sampling_mask_2 = self._mask_generation(self.pipe.apply_mask[1], image_2, gt_image_2, image_name_2)
-            # sample gt_image with subpixel offset
-            if self.dataset.resample_gt_image:
-                gt_image_2 = create_offset_gt(gt_image_2, subpixel_offset_2)
-                sampling_mask_2 = create_offset_gt(sampling_mask_2, subpixel_offset_2) if sampling_mask_2 is not None else None
-            loss += self._masked_loss(image_2, gt_image_2, sampling_mask_2)
-
-            # Mutual consistency
+            # Render 2 (Rendering from EMA, warmup needed)
             if iteration > self.pipe.warmup:
-                loss += self.opt.lambda_mul * l1_loss(image_raw_2, image_raw_2_g1)
-                loss += self.opt.lambda_mul * l1_loss(image_raw_1_g2, image_raw_1)
+                with torch.no_grad():
+                    gaussians_ema = GaussianModel(self.dataset.sh_degree)
+                    gaussians_ema.restore_ema_to_gaussian(self.gaussians_1.capture_ema())
+                    render_pkg_ema = render(viewpoint_cam_1, gaussians_ema, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)
+                    image_ema = render_pkg_ema["render"].detach()
+                    del gaussians_ema
 
-            # Mask learning loss
-            if self.pipe.apply_mask[0] == 2:
-                loss += self.opt.lambda_mask * self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
-            if self.pipe.apply_mask[1] == 2:
-                loss += self.opt.lambda_mask * self._mask_error(sampling_mask_2, image_2, gt_image_2, image_name_2)
-                
+                # Mutual consistency between GS and EMA rendering
+                Ll1_ema = l1_loss(image_raw_1, image_ema)
+                loss += self.opt.lambda_mul * Ll1_ema
+
+                # Mask learning loss
+                if self.pipe.apply_mask[k % 2] == 2:
+                    loss += self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
+            else:
+                # dummy for logging
+                image_ema = image_1.detach()
+                Ll1_ema = torch.zeros(1)
         else:
             # Onthego and Robustnerf
             image_name_1 = viewpoint_cam_1.image_name
-            image_name_2 = viewpoint_cam_2.image_name
 
-            # Render 1
+            # Render 1 (Rendering from GS)
             render_pkg_1 = render(viewpoint_cam_1, self.gaussians_1, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)
             image_1, viewspace_point_tensor_1, visibility_filter_1, radii_1 = render_pkg_1["render"], render_pkg_1["viewspace_points"], render_pkg_1["visibility_filter"], render_pkg_1["radii"]
-            image_2_g1 = render(viewpoint_cam_2, self.gaussians_1, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_2)["render"]
 
-            # Render 2
-            render_pkg_2 = render(viewpoint_cam_2, self.gaussians_2, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_2)
-            image_2, viewspace_point_tensor_2, visibility_filter_2, radii_2 = render_pkg_2["render"], render_pkg_2["viewspace_points"], render_pkg_2["visibility_filter"], render_pkg_2["radii"]
-            image_1_g2 = render(viewpoint_cam_1, self.gaussians_2, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)["render"]
-
-            # Masked reconstruction loss 1 (multi-cue adaptive mask by default)
+            # Masked reconstruction loss 1
             gt_image_1 = viewpoint_cam_1.original_image.cuda()
-            sampling_mask_1 = self._mask_generation(self.pipe.apply_mask[0], image_1, gt_image_1, image_name_1)
+            sampling_mask_1 = self._mask_generation(self.pipe.apply_mask[k % 2], image_1, gt_image_1, image_name_1)
             # sample gt_image with subpixel offset
             if self.dataset.resample_gt_image:
                 gt_image_1 = create_offset_gt(gt_image_1, subpixel_offset_1)
                 sampling_mask_1 = create_offset_gt(sampling_mask_1, subpixel_offset_1) if sampling_mask_1 is not None else None
-            loss = self._masked_loss(image_1, gt_image_1, sampling_mask_1)
+            loss = self._masked_loss(image_1, gt_image_1, sampling_mask_1)  # detach or not
 
-            # Masked reconstruction loss 2 (learnable mask by default)
-            gt_image_2 = viewpoint_cam_2.original_image.cuda()
-            sampling_mask_2 = self._mask_generation(self.pipe.apply_mask[1], image_2, gt_image_2, image_name_2)
-            # sample gt_image with subpixel offset
-            if self.dataset.resample_gt_image:
-                gt_image_2 = create_offset_gt(gt_image_2, subpixel_offset_2)
-                sampling_mask_2 = create_offset_gt(sampling_mask_2, subpixel_offset_2) if sampling_mask_2 is not None else None
-            loss += self._masked_loss(image_2, gt_image_2, sampling_mask_2)
-
-            # Mutual consistency
+            # Render 2 (Rendering from EMA, warmup needed)
             if iteration > self.pipe.warmup:
-                loss += self.opt.lambda_mul * l1_loss(image_2, image_2_g1)
-                loss += self.opt.lambda_mul * l1_loss(image_1_g2, image_1)
+                with torch.no_grad():
+                    gaussians_ema = GaussianModel(self.dataset.sh_degree)
+                    gaussians_ema.restore_ema_to_gaussian(self.gaussians_1.capture_ema())
+                    render_pkg_ema = render(viewpoint_cam_1, gaussians_ema, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset_1)
+                    image_ema = render_pkg_ema["render"].detach()
+                    del gaussians_ema
 
-            # Mask learning loss
-            if self.pipe.apply_mask[0] == 2:
-                loss += self.opt.lambda_mask * self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
-            if self.pipe.apply_mask[1] == 2:
-                loss += self.opt.lambda_mask * self._mask_error(sampling_mask_2, image_2, gt_image_2, image_name_2)
+                # Mutual consistency between GS and EMA rendering
+                Ll1_ema = l1_loss(image_1, image_ema)
+                loss += self.opt.lambda_mul * Ll1_ema
+
+                # Mask learning loss
+                if self.pipe.apply_mask[k % 2] == 2:
+                    loss += self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
+            else:
+                # dummy for logging
+                image_ema = image_1.detach()
+                Ll1_ema = torch.zeros(1)
 
         loss.backward()
 
         with torch.no_grad():
             psnr_value = 10 * torch.log10(1 / torch.mean((image_1 - gt_image_1) ** 2))
-
-            if self.use_color_transform:
-                psnr_value_cross = 10 * torch.log10(1 / torch.mean((image_raw_1_g2 - image_raw_1) ** 2))
-            else:
-                psnr_value_cross = 10 * torch.log10(1 / torch.mean((image_1 - image_1_g2) ** 2))
-
-
+            psnr_ema_value = 10 * torch.log10(1 / torch.mean((image_ema - gt_image_1) ** 2))
             metrics = {
                 # "l1_loss_1": Ll1_1.detach().cpu().item(),
-                # "l1_loss_2": Ll1_2.detach().cpu().item(),
+                "l1_loss_ema": Ll1_ema.detach().cpu().item(),
+                # "depth loss": depth_loss.detach().cpu().item(),
                 "loss": loss.detach().cpu().item(),
                 "psnr": psnr_value.detach().cpu().item(),
-                "psnr_cross": psnr_value_cross.detach().cpu().item(),
+                "psnr_ema": psnr_ema_value.detach().cpu().item(),
                 "num_gaussians": len(self.gaussians_1._xyz),
+                # "num_gaussians_ema": len(self.gaussians_ema._xyz),
             }
 
             # Densification
             self._densification(iteration, self.gaussians_1, visibility_filter_1, radii_1, viewspace_point_tensor_1, self.scene_1, self.trainCameras_1)
-            self._densification(iteration, self.gaussians_2, visibility_filter_2, radii_2, viewspace_point_tensor_2, self.scene_2, self.trainCameras_2)
 
             # Optimizer step
             if iteration < self.opt.iterations:
                 self.gaussians_1.optimizer.step()
                 self.gaussians_1.optimizer.zero_grad(set_to_none=True)
-                self.gaussians_2.optimizer.step()
-                self.gaussians_2.optimizer.zero_grad(set_to_none=True)
+
+                self.gaussians_1.update_all_ema()
 
                 # todo config this
                 if self.use_color_transform:
@@ -751,10 +687,8 @@ class AsymmetricGS(Method):
                     self.appearance_transform_optimizer.zero_grad(set_to_none=True)
                     self.global_encoding_optimizer_1.step()
                     self.global_encoding_optimizer_1.zero_grad(set_to_none=True)
-                    self.global_encoding_optimizer_2.step()
-                    self.global_encoding_optimizer_2.zero_grad(set_to_none=True)
 
-                if self.pipe.apply_mask[0] == 2 or self.pipe.apply_mask[1] == 2:
+                if self.pipe.apply_mask[k % 2] == 2:
                     self.learnable_mask_optimizer.step()
                     self.learnable_mask_optimizer.zero_grad(set_to_none=True)
 
@@ -876,17 +810,12 @@ class AsymmetricGS(Method):
                 gaussians.compute_3D_filter(cameras=trainCameras)
 
     def save(self, path: str):
-        if self.checkpoint:
-            return
-
         self.gaussians_1.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
-        self.gaussians_2.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud_2.ply"))
+        self.gaussians_1.save_ply_ema(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud_ema.ply"))
         torch.save((self.gaussians_1.capture(), self.gaussians_1.filter_3D, self.step), str(path) + f"/chkpnt-{self.step}.pth")
-        torch.save(self.learnable_mask_logits, str(path) + f"/learnable_mask-{self.step}.pth")
 
         if self.use_color_transform:
             torch.save(self.global_encoding_1, str(path) + f"/global_appearance_1-{self.step}.pth")
-            torch.save(self.global_encoding_2, str(path) + f"/global_appearance_2-{self.step}.pth")
             torch.save(self.appearance_transform.state_dict(), str(path) + f"/appearance_transform-{self.step}.pth")
 
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:

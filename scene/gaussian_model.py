@@ -55,7 +55,7 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree : int):
+    def __init__(self, sh_degree, enable_ema=False):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree
         self._xyz = torch.empty(0)
@@ -71,11 +71,22 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
+        self.enable_ema = enable_ema
 
         # todo check local learnable encoding help
         self.local_encoding_lr = 0.005
         self.appearance_n_fourier_freqs = 4
         self._local_encoding = torch.empty(0)
+
+        # EMA
+        if self.enable_ema:
+            self.alpha_ema = 0.8 # 0.8, 0.7 is ok 0.5 similar
+            self._xyz_ema = torch.empty(0)
+            self._features_dc_ema = torch.empty(0)
+            self._features_rest_ema = torch.empty(0)
+            self._scaling_ema = torch.empty(0)
+            self._rotation_ema = torch.empty(0)
+            self._opacity_ema = torch.empty(0)
 
     def capture(self):
         return (
@@ -112,6 +123,50 @@ class GaussianModel:
         self.xyz_gradient_accum = xyz_gradient_accum
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
+
+    def capture_ema(self):
+        return (
+            self.active_sh_degree,
+            self._xyz_ema,
+            self._features_dc_ema,
+            self._features_rest_ema,
+            self._scaling_ema,
+            self._rotation_ema,
+            self._opacity_ema,
+            self._local_encoding_ema,
+            self.filter_3D
+        )
+
+    def restore_ema_to_gaussian(self, model_args):
+        (self.active_sh_degree,
+        self._xyz,
+        self._features_dc,
+        self._features_rest,
+        self._scaling,
+        self._rotation,
+        self._opacity,
+        self._local_encoding,
+        self.filter_3D) = model_args
+
+    def update_all_ema(self):
+        # self._xyz_ema = self._xyz.detach().clone()
+        # self._scaling_ema = self._scaling.detach().clone()
+        # self._rotation_ema = self._rotation.detach().clone()
+        # self._features_dc_ema = self._features_dc.detach().clone()
+        # self._features_rest_ema = self._features_rest.detach().clone()
+        # self._opacity_ema = self._opacity.detach().clone()
+        self._local_encoding_ema = self._local_encoding.detach().clone()
+
+        self._xyz_ema = self._update_ema_value(self._xyz_ema, self._xyz.detach().clone())
+        self._scaling_ema = self._update_ema_value(self._scaling_ema, self._scaling.detach().clone())
+        self._rotation_ema = self._update_ema_value(self._rotation_ema, self._rotation.detach().clone())
+        self._features_dc_ema = self._update_ema_value(self._features_dc_ema, self._features_dc.detach().clone())
+        self._features_rest_ema = self._update_ema_value(self._features_rest_ema, self._features_rest.detach().clone())
+        self._opacity_ema = self._update_ema_value(self._opacity_ema, self._opacity.detach().clone())
+        # self._local_encoding_ema = self._update_ema_value(self._local_encoding_ema, self._local_encoding.detach().clone())
+
+    def _update_ema_value(self, ema_value, current_value):
+        return self.alpha_ema * ema_value + (1 - self.alpha_ema) * current_value
 
     @property
     def get_scaling(self):
@@ -275,6 +330,16 @@ class GaussianModel:
         encoding.add_(torch.randn_like(encoding) * 0.0001)
         self._local_encoding = encoding.detach().clone().requires_grad_()
 
+        # EMA
+        if self.enable_ema:
+            self._xyz_ema = self._xyz.detach().clone()
+            self._features_dc_ema = self._features_dc.detach().clone()
+            self._features_rest_ema = self._features_rest.detach().clone()
+            self._scaling_ema = self._scaling.detach().clone()
+            self._rotation_ema = self._rotation.detach().clone()
+            self._opacity_ema = self._opacity.detach().clone()
+            self._local_encoding_ema = self._local_encoding.detach().clone()
+
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -336,6 +401,27 @@ class GaussianModel:
         scale = self._scaling.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
         local_encoding = self._local_encoding.detach().cpu().numpy()
+
+        filter_3D = self.filter_3D.detach().cpu().numpy()
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, local_encoding, filter_3D), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
+
+    def save_ply_ema(self, path):
+        mkdir_p(os.path.dirname(path))
+
+        xyz = self._xyz_ema.detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+        f_dc = self._features_dc_ema.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self._features_rest_ema.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self._opacity_ema.detach().cpu().numpy()
+        scale = self._scaling_ema.detach().cpu().numpy()
+        rotation = self._rotation_ema.detach().cpu().numpy()
+        local_encoding = self._local_encoding_ema.detach().cpu().numpy()
 
         filter_3D = self.filter_3D.detach().cpu().numpy()
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
@@ -441,6 +527,16 @@ class GaussianModel:
 
         self.active_sh_degree = self.max_sh_degree
 
+        # EMA
+        if self.enable_ema:
+            self._xyz_ema = self._xyz.detach().clone()
+            self._features_dc_ema = self._features_dc.detach().clone()
+            self._features_rest_ema = self._features_rest.detach().clone()
+            self._scaling_ema = self._scaling.detach().clone()
+            self._rotation_ema = self._rotation.detach().clone()
+            self._opacity_ema = self._opacity.detach().clone()
+            self._local_encoding_ema = self._local_encoding.detach().clone()
+
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -492,6 +588,16 @@ class GaussianModel:
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
 
+        # EMA
+        if self.enable_ema:
+            self._xyz_ema = self._xyz_ema[valid_points_mask]
+            self._features_dc_ema = self._features_dc_ema[valid_points_mask]
+            self._features_rest_ema = self._features_rest_ema[valid_points_mask]
+            self._scaling_ema = self._scaling_ema[valid_points_mask]
+            self._rotation_ema = self._rotation_ema[valid_points_mask]
+            self._opacity_ema = self._opacity_ema[valid_points_mask]
+            self._local_encoding_ema = self._local_encoding_ema[valid_points_mask]
+
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -539,6 +645,15 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
+        if self.enable_ema:
+            self._xyz_ema = torch.cat((self._xyz_ema, new_xyz.detach().clone()), dim=0)
+            self._features_dc_ema = torch.cat((self._features_dc_ema, new_features_dc.detach().clone()), dim=0)
+            self._features_rest_ema = torch.cat((self._features_rest_ema, new_features_rest.detach().clone()), dim=0)
+            self._scaling_ema = torch.cat((self._scaling_ema, new_scaling.detach().clone()), dim=0)
+            self._rotation_ema = torch.cat((self._rotation_ema, new_rotation.detach().clone()), dim=0)
+            self._opacity_ema = torch.cat((self._opacity_ema, new_opacities.detach().clone()), dim=0)
+            self._local_encoding_ema = torch.cat((self._local_encoding_ema, new_local_encoding.detach().clone()), dim=0)
+
     def densify_and_split(self, grads, grad_threshold, grads_abs, grad_abs_threshold, scene_extent, N=2):
         n_init_points = self.get_xyz.shape[0]
         # Extract points that satisfy the gradient condition
@@ -549,8 +664,7 @@ class GaussianModel:
         padded_grad_abs[:grads_abs.shape[0]] = grads_abs.squeeze()
         selected_pts_mask_abs = torch.where(padded_grad_abs >= grad_abs_threshold, True, False)
         selected_pts_mask = torch.logical_or(selected_pts_mask, selected_pts_mask_abs)
-        selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
+        selected_pts_mask = torch.logical_and(selected_pts_mask, torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
 
         stds = self.get_scaling[selected_pts_mask].repeat(N,1)
         means =torch.zeros((stds.size(0), 3),device="cuda")
@@ -561,11 +675,51 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
-        new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
+        new_opacities = self._opacity[selected_pts_mask].repeat(N,1)
         new_local_encoding = self._local_encoding[selected_pts_mask].repeat(N,1)
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_local_encoding)
+        # update Gaussian
+        d = {"xyz": new_xyz,
+        "f_dc": new_features_dc,
+        "f_rest": new_features_rest,
+        "opacity": new_opacities,
+        "scaling" : new_scaling,
+        "rotation" : new_rotation,
+        "local_encoding": new_local_encoding}
 
+        optimizable_tensors = self.cat_tensors_to_optimizer(d)
+        self._xyz = optimizable_tensors["xyz"]
+        self._features_dc = optimizable_tensors["f_dc"]
+        self._features_rest = optimizable_tensors["f_rest"]
+        self._opacity = optimizable_tensors["opacity"]
+        self._scaling = optimizable_tensors["scaling"]
+        self._rotation = optimizable_tensors["rotation"]
+        self._local_encoding = optimizable_tensors["local_encoding"]
+
+        #TODO Maybe we don't need to reset the value, it's better to use moving average instead of reset the value
+        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.xyz_gradient_accum_abs = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.xyz_gradient_accum_abs_max = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+        # update Gaussian EMA
+        if self.enable_ema:
+            new_rotation_ema = self._rotation_ema[selected_pts_mask].repeat(N,1)
+            new_features_dc_ema = self._features_dc_ema[selected_pts_mask].repeat(N,1,1)
+            new_features_rest_ema = self._features_rest_ema[selected_pts_mask].repeat(N,1,1)
+            new_opacity_ema = self._opacity_ema[selected_pts_mask].repeat(N,1)
+            new_local_encoding_ema = self._local_encoding_ema[selected_pts_mask].repeat(N,1)
+
+            self._xyz_ema = torch.cat((self._xyz_ema, new_xyz.detach().clone()), dim=0)
+            self._features_dc_ema = torch.cat((self._features_dc_ema, new_features_dc_ema.detach().clone()), dim=0)
+            self._features_rest_ema = torch.cat((self._features_rest_ema, new_features_rest_ema.detach().clone()), dim=0)
+            self._scaling_ema = torch.cat((self._scaling_ema, new_scaling.detach().clone()), dim=0)
+            self._rotation_ema = torch.cat((self._rotation_ema, new_rotation_ema.detach().clone()), dim=0)
+            self._opacity_ema = torch.cat((self._opacity_ema, new_opacity_ema.detach().clone()), dim=0)
+            self._local_encoding_ema = torch.cat((self._local_encoding_ema, new_local_encoding_ema.detach().clone()), dim=0)
+
+        # remove old Gaussians
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
 
@@ -574,8 +728,7 @@ class GaussianModel:
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
         selected_pts_mask_abs = torch.where(torch.norm(grads_abs, dim=-1) >= grad_abs_threshold, True, False)
         selected_pts_mask = torch.logical_or(selected_pts_mask, selected_pts_mask_abs)
-        selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
+        selected_pts_mask = torch.logical_and(selected_pts_mask, torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
 
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
@@ -585,7 +738,48 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask]
         new_local_encoding = self._local_encoding[selected_pts_mask]
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_local_encoding)
+        # update Gaussian
+        d = {"xyz": new_xyz,
+        "f_dc": new_features_dc,
+        "f_rest": new_features_rest,
+        "opacity": new_opacities,
+        "scaling" : new_scaling,
+        "rotation" : new_rotation,
+        "local_encoding": new_local_encoding}
+
+        optimizable_tensors = self.cat_tensors_to_optimizer(d)
+        self._xyz = optimizable_tensors["xyz"]
+        self._features_dc = optimizable_tensors["f_dc"]
+        self._features_rest = optimizable_tensors["f_rest"]
+        self._opacity = optimizable_tensors["opacity"]
+        self._scaling = optimizable_tensors["scaling"]
+        self._rotation = optimizable_tensors["rotation"]
+        self._local_encoding = optimizable_tensors["local_encoding"]
+
+        #TODO Maybe we don't need to reset the value, it's better to use moving average instead of reset the value
+        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.xyz_gradient_accum_abs = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.xyz_gradient_accum_abs_max = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+        # update Gaussian EMA
+        if self.enable_ema:
+            new_xyz_ema = self._xyz_ema[selected_pts_mask]
+            new_features_dc_ema = self._features_dc_ema[selected_pts_mask]
+            new_features_rest_ema = self._features_rest_ema[selected_pts_mask]
+            new_opacity_ema = self._opacity_ema[selected_pts_mask]
+            new_scaling_ema = self._scaling_ema[selected_pts_mask]
+            new_rotation_ema = self._rotation_ema[selected_pts_mask]
+            new_local_encoding_ema = self._local_encoding_ema[selected_pts_mask]
+
+            self._xyz_ema = torch.cat((self._xyz_ema, new_xyz_ema.detach().clone()), dim=0)
+            self._features_dc_ema = torch.cat((self._features_dc_ema, new_features_dc_ema.detach().clone()), dim=0)
+            self._features_rest_ema = torch.cat((self._features_rest_ema, new_features_rest_ema.detach().clone()), dim=0)
+            self._scaling_ema = torch.cat((self._scaling_ema, new_scaling_ema.detach().clone()), dim=0)
+            self._rotation_ema = torch.cat((self._rotation_ema, new_rotation_ema.detach().clone()), dim=0)
+            self._opacity_ema = torch.cat((self._opacity_ema, new_opacity_ema.detach().clone()), dim=0)
+            self._local_encoding_ema = torch.cat((self._local_encoding_ema, new_local_encoding_ema.detach().clone()), dim=0)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
         grads = self.xyz_gradient_accum / self.denom
@@ -609,7 +803,7 @@ class GaussianModel:
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
         self.prune_points(prune_mask)
         prune = self._xyz.shape[0]
-        # torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
         return clone - before, split - clone, split - prune
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
