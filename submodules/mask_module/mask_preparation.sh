@@ -7,8 +7,8 @@ python raw_mask_generation.py --dataset on-the-go --scene patio_high-undistorted
 
 python raw_mask_generation.py --dataset robustnerf --scene android-undistorted
 python raw_mask_generation.py --dataset robustnerf --scene crab2-undistorted
-python raw_mask_generation.py --dataset robustnerf --scene stutas-undistorted
-python raw_mask_generation.py --dataset robustnerf --scene patio-undistorted
+python raw_mask_generation.py --dataset robustnerf --scene statue-undistorted
+python raw_mask_generation.py --dataset robustnerf --scene yoda-undistorted
 
 python raw_mask_generation.py --dataset phototourism --scene brandenburg-gate
 python raw_mask_generation.py --dataset phototourism --scene sacre-coeur
