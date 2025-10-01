@@ -94,7 +94,7 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
-        self.lambda_mul = 0.1 # optimal 0.1
+        self.lambda_mul = 1.0 # optimal EMA-GS 0.1 GS-GS 1.0 for now
         self.lambda_mask = 1.0 # optimal 1.0
         super().__init__(parser, "Optimization Parameters")
 

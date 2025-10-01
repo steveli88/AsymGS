@@ -41,6 +41,8 @@ AsymmetricGSSpec: MethodSpec = {
     # },
     "presets": {
         "blender": { "@apply": [{"dataset": "blender"}], "white_background": True, },
+        "on-the-go": { "@apply": [{"dataset": "on-the-go"}], "lambda_mul": 1.0, },
+        "robustnerf": { "@apply": [{"dataset": "robustnerf"}], "lambda_mul": 1.0, },
         "large": {
             "@apply": [{"dataset": "phototourism"}],
             "@description": "A version of the method designed for large scenes.",
