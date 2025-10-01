@@ -49,7 +49,7 @@ if __name__ == "__main__":
 
     # initialize model
     semantic_sam_model = build_semantic_sam(model_type='L', ckpt='swinl_only_sam_many2many.pth')
-    mask_generator = SemanticSamAutomaticMaskGenerator(semantic_sam_model, level=[2], points_per_side=64)
+    mask_generator = SemanticSamAutomaticMaskGenerator(semantic_sam_model, level=[2, 3], points_per_side=64)
 
     # root and files
     root = f"../../dataset/{dataset}/{scene}"
@@ -70,6 +70,7 @@ if __name__ == "__main__":
 
     start_time = time.time()
     multi_cue_masks = {}
+    dilated_point_dict = {}
     for file in train_list:
         print(file)
 
@@ -106,7 +107,7 @@ if __name__ == "__main__":
         # Adaptively filtering masks covered static regions
         # Global density
         valid_correspondence_aver_density = points.shape[0] / (h * w)
-        threshold = 0.1 * valid_correspondence_aver_density  # todo config the scaler
+        threshold = 0.1 * valid_correspondence_aver_density  # todo config the scaler 0.1
         # Per mask density
         valid_correspondence_counts = np.sum(point_map * masks_unpooled, axis=(1, 2))
         mask_areas = np.sum(masks_unpooled, axis=(1, 2))
@@ -117,6 +118,12 @@ if __name__ == "__main__":
         # record the filtered resized mask
         multi_cue_masks[file] = masks_unpooled_filtered
 
+        # Correspond points as static
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        point_map_dilated = cv2.dilate(np.squeeze(point_map), kernel, iterations=1)
+        dilated_point_dict[file] = np.reshape(point_map_dilated, (-1, h, w))
+
     print("%s --- %.2f seconds" % (scene, time.time() - start_time))
     np.savez_compressed(os.path.join(root, f"multi_cue_masks_{scene}"), **multi_cue_masks)
+    np.savez_compressed(os.path.join(root, f"dilated_correspond_points_{scene}"), **dilated_point_dict)
 
