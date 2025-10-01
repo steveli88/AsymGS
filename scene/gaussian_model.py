@@ -74,7 +74,7 @@ class GaussianModel:
         self.enable_ema = enable_ema
 
         # todo check local learnable encoding help
-        self.local_encoding_lr = 0.005
+        self.local_appear_lr = 0.005
         self.appearance_n_fourier_freqs = 4
         self._local_encoding = torch.empty(0)
 
@@ -323,9 +323,6 @@ class GaussianModel:
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         # initial local encoding with position encoding
-        # todo testing copy
-        # self._local_encoding = encoding.detach().clone().requires_grad_()
-        # self._local_encoding.data.copy_(encoding)
         encoding = _get_fourier_features(self._xyz, num_features=self.appearance_n_fourier_freqs)
         encoding.add_(torch.randn_like(encoding) * 0.0001)
         self._local_encoding = encoding.detach().clone().requires_grad_()
@@ -354,8 +351,7 @@ class GaussianModel:
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
-            # # todo lr config for local encoding
-            {'params': [self._local_encoding], 'lr': self.local_encoding_lr, "name": "local_encoding"}
+            {'params': [self._local_encoding], 'lr': training_args.local_appear_lr, "name": "local_encoding"}
         ]
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)

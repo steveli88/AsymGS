@@ -92,14 +92,14 @@ class OptimizationParams(ParamGroup):
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
         self.densification_interval = 1000
-        self.opacity_reset_interval = 40_000 # 3_000 todo may need to change back
+        self.opacity_reset_interval = 40_000 # no opacity reset
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
         self.lambda_mul = 1.0 # optimal EMA-GS 0.1 GS-GS 1.0 for now
         self.lambda_mask = 1.0 # optimal 1.0
         self.global_appear_lr = 0.001
-        self.local_appear_lr = 0.0005
+        self.local_appear_lr = 0.005
         self.appear_trans_lr = 0.0005
         self.mask_lr = 0.1
         super().__init__(parser, "Optimization Parameters")

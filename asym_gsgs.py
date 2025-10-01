@@ -493,19 +493,16 @@ class AsymmetricGS(Method):
             subpixel_offset = None
 
         global_encoding_param = torch.nn.Parameter(torch.zeros_like(self.global_encoding_1[0]).to(device).requires_grad_(True))
-        # todo add this to config learning rate
         optimizer = torch.optim.Adam([global_encoding_param], lr=0.1)
 
         gt_image = torch.tensor(convert_image_dtype(dataset["images"][i], np.float32), dtype=torch.float32, device=device).permute(2, 0, 1)
         gt_mask = torch.tensor(convert_image_dtype(dataset["masks"][i], np.float32), dtype=torch.float32, device=device)[..., None].permute(2, 0, 1) if dataset["masks"] is not None else None
 
         with torch.enable_grad():
-            # todo add this to config
             app_optim_type = 'dssim+l1'
             loss_mult = None
             if app_optim_type.endswith("-scaled"):
                 app_optim_type = app_optim_type[:-7]
-            # todo add this to config
             global_encoding_optim_iters = 128
             for _ in range(global_encoding_optim_iters):
                 optimizer.zero_grad()
