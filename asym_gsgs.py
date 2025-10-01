@@ -381,13 +381,10 @@ class AsymmetricGS(Method):
             self.gaussians_2.compute_3D_filter(cameras=self.trainCameras_2)
 
         # todo tuning these models
-        self.encoding_dim = 32
-        appearance_n_fourier_freqs = 4
-        self.appearance_transform = AppearanceTransform(global_encoding_dim=self.encoding_dim, local_encoding_dim=appearance_n_fourier_freqs*6).cuda()
+        self.appearance_transform = AppearanceTransform(global_appear_dim=self.pipe.global_appear_dim, local_appear_dim=self.pipe.local_appear_dim).cuda()
         self.appearance_transform.apply(initialize_weights)
-        self.appearance_transform_optimizer = torch.optim.Adam(self.appearance_transform.parameters(), lr=0.0005, eps=1e-15)
+        self.appearance_transform_optimizer = torch.optim.Adam(self.appearance_transform.parameters(), lr=self.opt.appear_trans_lr, eps=1e-15)
 
-        # todo make this config
         if train_dataset is not None:
             self.scene_name = train_dataset["image_paths_root"].split("/")[-2]
             self.dataset_name = train_dataset["image_paths_root"].split("/")[-3]
@@ -395,7 +392,6 @@ class AsymmetricGS(Method):
 
             # Load preprocessed raw masks for multi-cue adaptive mask
             self.raw_masks = np.load(os.path.join(self.abs_root, self.dataset_name, self.scene_name, f"multi_cue_masks_{self.scene_name}.npz"))
-            # self.raw_masks = np.load(f"/home/lorentz/Project/Code/mip-splatting_ema/self_created_data_mask/semantic_sam_masks_unpooled_filtered_{self.scene_name}_23sam.npz")
 
             # Learnable mask
             train_image_number = len(train_dataset["images"])
@@ -403,24 +399,23 @@ class AsymmetricGS(Method):
                 cam.image_name: torch.ones((1, cam.image_height, cam.image_width)).cuda().requires_grad_()
                 for cam in self.scene_1.train_cameras[1.0]
             }
-            self.learnable_mask_optimizer = torch.optim.Adam([item for item in self.learnable_mask_logits.items()], lr=0.1, eps=1e-15)
+            self.learnable_mask_optimizer = torch.optim.Adam([item for item in self.learnable_mask_logits.items()], lr=self.opt.mask_lr, eps=1e-15)
             # Treat positions around correspondence points as static
             # self.correspond_points = np.load(os.path.join(self.abs_root, self.dataset_name, self.scene_name, f"dilated_correspond_points_{self.scene_name}.npz"))
 
             self.dinov2_vits14_reg = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg').cuda()
 
-            # todo config appearance encoding
             # Adopting appearance modeling in phototourism dataset
             if self.dataset_name == "phototourism":
                 self.use_color_transform = True
-                self.global_encoding_1 = torch.normal(mean=0, std=0.01, size=(train_image_number, self.encoding_dim)).cuda().requires_grad_()
-                self.global_encoding_optimizer_1 = torch.optim.Adam([{'params': [self.global_encoding_1]}], lr=0.001, eps=1e-15)
-                self.global_encoding_2 = torch.normal(mean=0, std=0.01, size=(train_image_number, self.encoding_dim)).cuda().requires_grad_()
-                self.global_encoding_optimizer_2 = torch.optim.Adam([{'params': [self.global_encoding_2]}], lr=0.001, eps=1e-15)
+                self.global_encoding_1 = torch.normal(mean=0, std=0.01, size=(train_image_number, self.pipe.global_appear_dim)).cuda().requires_grad_()
+                self.global_encoding_optimizer_1 = torch.optim.Adam([{'params': [self.global_encoding_1]}], lr=self.opt.global_appear_lr, eps=1e-15)
+                self.global_encoding_2 = torch.normal(mean=0, std=0.01, size=(train_image_number, self.pipe.global_appear_dim)).cuda().requires_grad_()
+                self.global_encoding_optimizer_2 = torch.optim.Adam([{'params': [self.global_encoding_2]}], lr=self.opt.global_appear_lr, eps=1e-15)
             else:
                 self.use_color_transform = False
-                self.global_encoding_1 = torch.zeros((train_image_number, self.encoding_dim)).cuda().requires_grad_(False)
-                self.global_encoding_2 = torch.zeros((train_image_number, self.encoding_dim)).cuda().requires_grad_(False)
+                self.global_encoding_1 = torch.zeros((train_image_number, self.pipe.global_appear_dim)).cuda().requires_grad_(False)
+                self.global_encoding_2 = torch.zeros((train_image_number, self.pipe.global_appear_dim)).cuda().requires_grad_(False)
 
     def get_learnable_mask(self, id, size):
         learnable_mask_logit = self.learnable_mask_logits[id].view(-1, 1, size[0], size[1])
@@ -571,7 +566,7 @@ class AsymmetricGS(Method):
                 if options is not None:
                     _np_embedding_1 = (options or {}).get("embedding", None)
                 else:
-                    _np_embedding_1 = np.zeros((1, self.encoding_dim), dtype=np.float32)
+                    _np_embedding_1 = np.zeros((1, self.pipe.global_appear_dim), dtype=np.float32)
                 global_encoding_1 = torch.from_numpy(_np_embedding_1).cuda()
 
                 image_1 = torch.clamp(self._render_with_appearance_encoding(viewpoint, self.gaussians_1, global_encoding_1, self.background, subpixel_offset)["render"], 0.0, 1.0)
@@ -748,7 +743,6 @@ class AsymmetricGS(Method):
                 self.gaussians_2.optimizer.step()
                 self.gaussians_2.optimizer.zero_grad(set_to_none=True)
 
-                # todo config this
                 if self.use_color_transform:
                     self.appearance_transform_optimizer.step()
                     self.appearance_transform_optimizer.zero_grad(set_to_none=True)

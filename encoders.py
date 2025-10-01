@@ -33,12 +33,12 @@ def initialize_weights(m):
 
 
 class AppearanceTransform(nn.Module):
-    def __init__(self, global_encoding_dim, local_encoding_dim, in_dim=3):
+    def __init__(self, global_appear_dim, local_appear_dim, in_dim=3):
         super().__init__()
         self.in_dim = in_dim
 
         self.mlp = nn.Sequential(
-            nn.Linear(global_encoding_dim + local_encoding_dim + in_dim, 128),
+            nn.Linear(global_appear_dim + local_appear_dim + in_dim, 128),
             nn.ReLU(),
             nn.Linear(128, 128),
             nn.ReLU(),
@@ -69,7 +69,7 @@ def _get_fourier_features(xyz, num_features=3):
 
 if __name__ == "__main__":
     # Example usage
-    appearance_transform = AppearanceTransform(global_encoding_dim=64, local_encoding_dim=64)
+    appearance_transform = AppearanceTransform(global_appear_dim=64, local_appear_dim=64)
     color = torch.randn(4, 3)
     global_encoding = torch.randn(4, 64)
     local_encoding = torch.randn(4, 64)

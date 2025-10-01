@@ -74,6 +74,8 @@ class PipelineParams(ParamGroup):
         self.debug = False
         self.apply_mask = [1, 2] # 0 no mask 1 ada mask 2 learnable mask
         self.warmup = 1000
+        self.global_appear_dim = 32
+        self.local_appear_dim = 4 * 6 # appearance_n_fourier_freqs = 4, appearance_n_fourier_freqs * 6
         super().__init__(parser, "Pipeline Parameters")
 
 class OptimizationParams(ParamGroup):
@@ -96,6 +98,10 @@ class OptimizationParams(ParamGroup):
         self.densify_grad_threshold = 0.0002
         self.lambda_mul = 1.0 # optimal EMA-GS 0.1 GS-GS 1.0 for now
         self.lambda_mask = 1.0 # optimal 1.0
+        self.global_appear_lr = 0.001
+        self.local_appear_lr = 0.0005
+        self.appear_trans_lr = 0.0005
+        self.mask_lr = 0.1
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
