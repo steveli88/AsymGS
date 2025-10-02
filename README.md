@@ -2,13 +2,13 @@
 <p align="center">
 <a href="">Chengqi Li</a>
 ·
-<a href="">Zhihao Shi</a>
+<a href="https://scholar.google.com/citations?hl=en&user=xFAV1X8AAAAJ&view_op=list_works&sortby=pubdate">Zhihao Shi</a>
 ·
-<a href="">Yangdi Lu</a>
+<a href="https://maclll.github.io/">Yangdi Lu</a>
 ·
-<a href="">Wenbo He</a>
+<a href="https://www.cas.mcmaster.ca/~hew11/">Wenbo He</a>
 ·
-<a href="">Xiangyu Xu</a>
+<a href="https://xuxy09.github.io/">Xiangyu Xu</a>
 
 </p>
 <h2 align="center">NeurIPS 2025 Spotlight</h2>
