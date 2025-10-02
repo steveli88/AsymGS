@@ -14,7 +14,7 @@
 <h2 align="center">NeurIPS 2025 Spotlight</h2>
 <h3 align="center">
 <a href="https://arxiv.org/abs/2506.03538">Paper</a> | 
-<a href="">Project Page</a> | 
+<a href="https://steveli88.github.io/AsymGS">Project Page</a> | 
 <a href="https://github.com/steveli88/AsymGS">Code</a> 
 </h3>
 <div align="center"></div>
