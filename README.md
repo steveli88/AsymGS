@@ -15,7 +15,7 @@
 <h3 align="center">
 <a href="https://arxiv.org/abs/2506.03538">Paper</a> | 
 <a href="">Project Page</a> | 
-<a href="https://github.com/steveli88/AsymmetricGS">Code</a> 
+<a href="https://github.com/steveli88/AsymGS">Code</a> 
 </h3>
 <div align="center"></div>
 <br/>
@@ -37,11 +37,11 @@ Extensive experiments on three challenging real-world datasets validate the effe
 ## Installation
 Clone the repository and create a `python == 3.11` Anaconda environment with CUDA toolkit 12.6 installed using
 ```bash
-git clone https://github.com/steveli88/AsymmetricGS.git
-cd AsymmetricGS
+git clone https://github.com/steveli88/AsymGS.git
+cd AsymGS
 
-conda create -y -n AsymmetricGS python=3.11
-conda activate AsymmetricGS
+conda create -y -n AsymGS python=3.11
+conda activate AsymGS
 
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 pip install plyfile
@@ -100,7 +100,7 @@ sh mask_preparation.sh
 ```
 
 ## Training
-At project root, train our `AsymmetricGS (GS-GS)` and `AsymmetricGS (EMA-GS)`.
+At project root, train our `AsymGS (GS-GS)` and `AsymGS (EMA-GS)`.
 ```bash
 sh scripts/train_all_gsgs.sh
 sh scripts/train_all_emags.sh
