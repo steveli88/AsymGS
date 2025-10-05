@@ -370,6 +370,8 @@ class AsymmetricGS(Method):
                 for cam in self.scene_1.train_cameras[1.0]
             }
             self.learnable_mask_optimizer = torch.optim.Adam([item for item in self.learnable_mask_logits.items()], lr=self.opt.mask_lr, eps=1e-15)
+            # Treat positions around correspondence points as static
+            # self.correspond_points = np.load(os.path.join(self.abs_root, self.dataset_name, self.scene_name, f"dilated_correspond_points_{self.scene_name}.npz"))
 
             self.dinov2_vits14_reg = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg').cuda()
 
@@ -606,7 +608,7 @@ class AsymmetricGS(Method):
 
                 # Mask learning loss
                 if self.pipe.apply_mask[k % 2] == 2:
-                    loss += self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
+                    loss += self.opt.lambda_mask * self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
             else:
                 # dummy for logging
                 image_ema = image_1.detach()
@@ -643,7 +645,7 @@ class AsymmetricGS(Method):
 
                 # Mask learning loss
                 if self.pipe.apply_mask[k % 2] == 2:
-                    loss += self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
+                    loss += self.opt.lambda_mask * self._mask_error(sampling_mask_1, image_1, gt_image_1, image_name_1)
             else:
                 # dummy for logging
                 image_ema = image_1.detach()
@@ -681,6 +683,11 @@ class AsymmetricGS(Method):
                     self.global_encoding_optimizer_1.step()
                     self.global_encoding_optimizer_1.zero_grad(set_to_none=True)
 
+                # skip static points
+                # if self.pipe.apply_mask[k % 2] == 2:
+                #     self.learnable_mask_logits[image_name_1].grad *= torch.from_numpy(
+                #         1.0 - self.correspond_points[image_name_1]).to(gt_image_1.dtype).cuda()
+
                 if self.pipe.apply_mask[k % 2] == 2:
                     self.learnable_mask_optimizer.step()
                     self.learnable_mask_optimizer.zero_grad(set_to_none=True)
@@ -692,6 +699,8 @@ class AsymmetricGS(Method):
         # transform to [0, 1]
         transformed_feature_residual = self._feature_residual(image_1.detach(), gt_image_1)
         transformed_feature_residual = normalize_to_01(transformed_feature_residual)
+        # skip static points
+        # transformed_feature_residual -= torch.from_numpy(self.correspond_points[image_name_1]).to(gt_image_1.dtype).cuda()
         transformed_feature_residual = transformed_feature_residual.clamp(min=0.0, max=1.0)
 
         return l1_loss(sampling_mask_1, 1.0 - transformed_feature_residual)
