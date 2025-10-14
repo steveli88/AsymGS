@@ -110,8 +110,9 @@ sh scripts/train_all_emags.sh
 This project is built upon 
 [Semantic-SAM](https://github.com/UX-Decoder/Semantic-SAM), 
 [Mip-Splatting](https://niujinshuchong.github.io/mip-splatting/), 
+[WildGaussians](https://github.com/jkulhanek/wild-gaussians/),
 and [NerfBaselines](https://nerfbaselines.github.io/).
-Please follow the license of Semantic-SAM, Mip-Splatting, and NerfBaselines. We thank all the authors for their great work and released code.
+Please follow the license of Semantic-SAM, Mip-Splatting, WildGaussians, and NerfBaselines. We thank all the authors for their great work and released code.
 
 ## Citation
 If you find our code or paper useful, please cite
